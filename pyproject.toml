@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "seive-email-filtering-mcp-server"
+version = "0.1.0"
+description = "An MCP server for managing Sieve email filters"
+authors = [
+    {name = "Author", email = "author@example.com"}
+]
+dependencies = [
+    "mcp>=1.0.0",
+    "click>=8.0.0",
+    "pydantic>=2.0.0",
+    "typing-extensions>=4.0.0",
+]
+requires-python = ">=3.8"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=22.0.0",
+    "isort>=5.0.0",
+    "flake8>=5.0.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+seive-email-filtering-mcp-server = "seive_email_filtering_mcp_server.server:main"
+sieve-cli = "seive_email_filtering_mcp_server.cli:cli"
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
