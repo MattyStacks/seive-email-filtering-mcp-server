@@ -10,7 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Initial Sieve Email Filtering MCP Server implementation
 - Comprehensive Python package structure with proper module organization
 - Core data models with Pydantic validation for type safety
-- Full MCP (Model Context Protocol) server with 16 specialized tools
+- Full MCP (Model Context Protocol) server with 17 specialized tools
 - ProtonMail-specific extensions and compatibility features
 - Email analysis capabilities for .eml file processing
 - CLI interface for standalone usage
@@ -18,6 +18,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - VS Code integration documentation and configuration
 - GitHub Copilot integration instructions and examples
 - Privacy-safe configuration templates
+
+### Fixed
+- **CRITICAL: Multiple Fileinto Actions Bug** - Fixed fundamental Sieve syntax violation
+  - **Problem**: MCP server was creating single rules with multiple fileinto actions (invalid Sieve syntax)
+  - **Solution**: Implemented automatic rule splitting to create separate rules for each fileinto action
+  - **Impact**: All generated Sieve scripts now comply with RFC 5228 requirements
+  - **Files Modified**: utils.py, server.py, email_analyzer.py
+  - **New Functions**: `split_multiple_fileinto_actions()`, `create_expiring_fileinto_filter()`
+  - **New MCP Tool**: `split_multiple_fileinto_rule` for fixing existing incorrect rules
 
 ### Core Features
 - **Complete MCP Server**: 16 tools for comprehensive Sieve filter management

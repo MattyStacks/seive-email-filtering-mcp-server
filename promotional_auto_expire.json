@@ -1,0 +1,47 @@
+{
+  "name": "Promotional Auto Expire",
+  "description": "Promotional emails with expiration and filing",
+  "requires": ["fileinto", "vnd.proton.expire"],
+  "protonmail_mode": true,
+  "include_spam_check": true,
+  "variables": {},
+  "rules": [
+    {
+      "name": "Promotional Email Expiration",
+      "description": "Set promotional emails to expire after 30 days",
+      "enabled": true,
+      "priority": 30,
+      "test": {
+        "test_type": "anyof",
+        "tests": [
+          {"test_type": "header", "header_list": ["Subject"], "key_list": ["sale", "discount", "offer", "promotion", "deal", "coupon", "limited time", "special offer", "save", "% off", "free shipping", "clearance", "flash sale", "exclusive", "bonus", "unsubscribe"], "comparator": "contains"},
+          {"test_type": "header", "header_list": ["From"], "key_list": ["noreply@", "no-reply@", "marketing@", "promo@", "offers@", "deals@", "newsletter@", "updates@", "notifications@"], "comparator": "contains"},
+          {"test_type": "exists", "header_list": ["List-Unsubscribe"]},
+          {"test_type": "header", "header_list": ["From"], "key_list": ["groupon.com", "amazon.com", "ebay.com", "walmart.com", "target.com", "bestbuy.com", "retailmenot.com", "slickdeals.com"], "comparator": "contains"}
+        ]
+      },
+      "actions": [
+        {"action_type": "expire", "period": "day", "count": "30"},
+        {"action_type": "fileinto", "mailbox": "expiring"}
+      ]
+    },
+    {
+      "name": "Promotional Email Filing",
+      "description": "File promotional emails to Promotions folder",
+      "enabled": true,
+      "priority": 31,
+      "test": {
+        "test_type": "anyof",
+        "tests": [
+          {"test_type": "header", "header_list": ["Subject"], "key_list": ["sale", "discount", "offer", "promotion", "deal", "coupon", "limited time", "special offer", "save", "% off", "free shipping", "clearance", "flash sale", "exclusive", "bonus", "unsubscribe"], "comparator": "contains"},
+          {"test_type": "header", "header_list": ["From"], "key_list": ["noreply@", "no-reply@", "marketing@", "promo@", "offers@", "deals@", "newsletter@", "updates@", "notifications@"], "comparator": "contains"},
+          {"test_type": "exists", "header_list": ["List-Unsubscribe"]},
+          {"test_type": "header", "header_list": ["From"], "key_list": ["groupon.com", "amazon.com", "ebay.com", "walmart.com", "target.com", "bestbuy.com", "retailmenot.com", "slickdeals.com"], "comparator": "contains"}
+        ]
+      },
+      "actions": [
+        {"action_type": "fileinto", "mailbox": "Promotions"}
+      ]
+    }
+  ]
+}

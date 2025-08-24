@@ -412,6 +412,20 @@ async def list_tools() -> List[Tool]:
             }
         ),
         Tool(
+            name="split_multiple_fileinto_rule",
+            description="Split a rule with multiple fileinto actions into separate rules for Sieve compliance",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "rule_json": {
+                        "type": "string",
+                        "description": "JSON string containing a rule with multiple fileinto actions"
+                    }
+                },
+                "required": ["rule_json"]
+            }
+        ),
+        Tool(
             name="explain_sieve_syntax",
             description="Get explanation of Sieve syntax and capabilities",
             inputSchema={
@@ -728,23 +742,36 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> List[Union[TextCont
                 response_text += f"**Auto-expiration recommended:** {'Yes' if analysis.requires_expiration else 'No'}\n"
                 
                 if generate_filter:
-                    # Generate the filter
-                    rule = email_analyzer.generate_filter_from_analysis(analysis)
-                    rule_json = rule.model_dump_json(indent=2)
+                    # Generate the filter(s) - may create multiple rules for expiring filters
+                    if analysis.requires_expiration and "expire" in analysis.recommended_actions:
+                        rules = email_analyzer.generate_expiring_filter_from_analysis(analysis)
+                        rules_json = [rule.model_dump() for rule in rules]
+                        rules_json_str = json.dumps(rules_json, indent=2)
+                        
+                        response_text += f"\n\n**Generated Filter Rules (Separate rules for proper Sieve syntax):**\n```json\n{rules_json_str}\n```\n\n"
+                    else:
+                        # Single rule for non-expiring filters
+                        rule = email_analyzer.generate_filter_from_analysis(analysis)
+                        rules = [rule]
+                        rule_json = rule.model_dump_json(indent=2)
+                        
+                        response_text += f"\n\n**Generated Filter Rule:**\n```json\n{rule_json}\n```\n\n"
                     
                     # Generate script
                     script = SieveScript(
                         name=analysis.suggested_filter_name,
                         description=f"Filter generated from email analysis",
-                        rules=[rule],
-                        requires=["fileinto"],
+                        rules=rules,
+                        requires=["fileinto"] + (["vnd.proton.expire"] if analysis.requires_expiration else []),
                         protonmail_mode=True,
                         include_spam_check=True
                     )
                     script_text = generator.generate_script(script)
                     
-                    response_text += f"\n\n**Generated Filter Rule:**\n```json\n{rule_json}\n```\n\n"
                     response_text += f"**Generated Sieve Script:**\n```sieve\n{script_text}\n```"
+                    
+                    if analysis.requires_expiration:
+                        response_text += f"\n\n**Note:** Created {len(rules)} separate rules to comply with Sieve syntax - multiple fileinto actions require separate rules."
                 
                 return [TextContent(type="text", text=response_text)]
                 
@@ -809,27 +836,36 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> List[Union[TextCont
             priority = arguments.get("priority", 30)
             
             try:
-                # Create the base rule based on filter type
+                # Create the base test based on filter type
                 if filter_type == "sender":
-                    rule = SieveFilterBuilder.create_sender_filter(criteria, mailbox, priority)
+                    from .models import SieveAddressTest, SieveAddressPart
+                    test = SieveAddressTest(
+                        header_list=["From"],
+                        key_list=[criteria],
+                        comparator=SieveComparator.IS,
+                        address_part=SieveAddressPart.ALL
+                    )
                 elif filter_type == "domain":
-                    rule = SieveFilterBuilder.create_domain_filter(criteria, mailbox, priority)
+                    from .models import SieveAddressTest, SieveAddressPart
+                    test = SieveAddressTest(
+                        header_list=["From"],
+                        key_list=[criteria],
+                        comparator=SieveComparator.IS,
+                        address_part=SieveAddressPart.DOMAIN
+                    )
                 elif filter_type == "subject":
-                    rule = SieveFilterBuilder.create_subject_filter([criteria], mailbox, SieveComparator.CONTAINS, priority)
+                    from .models import SieveHeaderTest
+                    test = SieveHeaderTest(
+                        header_list=["Subject"],
+                        key_list=[criteria],
+                        comparator=SieveComparator.CONTAINS
+                    )
                 elif filter_type == "promotional":
-                    # Create promotional filter
-                    from .models import SieveHeaderTest, SieveFileintoAction
+                    from .models import SieveHeaderTest
                     test = SieveHeaderTest(
                         header_list=["Subject"],
                         key_list=["sale", "discount", "offer", "promotion"],
                         comparator=SieveComparator.CONTAINS
-                    )
-                    rule = SieveRule(
-                        name="Promotional Filter",
-                        description="Filter promotional emails with auto-expiration",
-                        test=test,
-                        actions=[SieveFileintoAction(mailbox=mailbox)],
-                        priority=priority
                     )
                 else:
                     return [TextContent(
@@ -837,21 +873,27 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> List[Union[TextCont
                         text=f"Unknown filter type: {filter_type}"
                     )]
                 
-                # Add expiration action
-                expire_action = SieveExpireAction(period=expire_period, count=expire_count)
-                rule.actions.insert(0, expire_action)  # Add expire before fileinto
+                # Create separate rules for expiring + regular filing
+                rules = SieveFilterBuilder.create_expiring_fileinto_filter(
+                    test=test,
+                    expire_mailbox="expiring",
+                    regular_mailbox=mailbox,
+                    expire_period=expire_period,
+                    expire_count=expire_count,
+                    name=f"{filter_type.title()} Filter",
+                    description=f"Auto-expiring filter for {criteria}",
+                    priority=priority
+                )
                 
-                # Update rule name to indicate expiration
-                rule.name += " (Auto-Expiring)"
-                rule.description += f" - expires after {expire_count} {expire_period}(s)"
+                # Convert rules to JSON for display
+                rules_json = [rule.model_dump() for rule in rules]
+                rules_json_str = json.dumps(rules_json, indent=2)
                 
-                rule_json = rule.model_dump_json(indent=2)
-                
-                # Generate script
+                # Generate script with both rules
                 script = SieveScript(
                     name=f"Expiring {filter_type.title()} Filter",
-                    description=f"Auto-expiring filter for {criteria}",
-                    rules=[rule],
+                    description=f"Auto-expiring filter for {criteria} with separate rules for proper Sieve syntax",
+                    rules=rules,
                     requires=["fileinto", "vnd.proton.expire"],
                     protonmail_mode=True,
                     include_spam_check=True
@@ -860,13 +902,62 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> List[Union[TextCont
                 
                 return [TextContent(
                     type="text",
-                    text=f"Created expiring {filter_type} filter:\n\n**JSON:**\n```json\n{rule_json}\n```\n\n**Sieve Script:**\n```sieve\n{script_text}\n```"
+                    text=f"Created expiring {filter_type} filter with separate rules:\n\n**Rules JSON:**\n```json\n{rules_json_str}\n```\n\n**Sieve Script:**\n```sieve\n{script_text}\n```\n\n**Note:** This creates two separate rules to comply with Sieve syntax requirements - multiple fileinto actions cannot be in the same rule."
                 )]
                 
             except Exception as e:
                 return [TextContent(
                     type="text",
                     text=f"Error creating expiring filter: {str(e)}"
+                )]
+        
+        elif name == "split_multiple_fileinto_rule":
+            rule_json = arguments["rule_json"]
+            
+            try:
+                # Parse the rule
+                rule_data = json.loads(rule_json)
+                rule = SieveRule.model_validate(rule_data)
+                
+                # Split the rule if it has multiple fileinto actions
+                split_rules = SieveFilterBuilder.split_multiple_fileinto_actions(rule)
+                
+                if len(split_rules) == 1:
+                    return [TextContent(
+                        type="text",
+                        text="No splitting needed - the rule has only one or no fileinto actions.\n\n" +
+                             "**Original Rule:**\n```json\n" + rule.model_dump_json(indent=2) + "\n```"
+                    )]
+                
+                # Convert split rules to JSON
+                split_rules_json = [rule.model_dump() for rule in split_rules]
+                split_rules_json_str = json.dumps(split_rules_json, indent=2)
+                
+                # Generate script with split rules
+                script = SieveScript(
+                    name="Split Rules Script",
+                    description="Rules split to comply with Sieve syntax - separate rules for each fileinto action",
+                    rules=split_rules,
+                    requires=["fileinto"],
+                    protonmail_mode=True,
+                    include_spam_check=True
+                )
+                script_text = generator.generate_script(script)
+                
+                return [TextContent(
+                    type="text",
+                    text=f"Successfully split rule into {len(split_rules)} separate rules:\n\n" +
+                         f"**Original Rule:**\n```json\n{rule.model_dump_json(indent=2)}\n```\n\n" +
+                         f"**Split Rules:**\n```json\n{split_rules_json_str}\n```\n\n" +
+                         f"**Generated Sieve Script:**\n```sieve\n{script_text}\n```\n\n" +
+                         f"**Note:** Sieve syntax requires separate rules for each fileinto action. " +
+                         f"Multiple fileinto actions in a single rule are not allowed."
+                )]
+                
+            except Exception as e:
+                return [TextContent(
+                    type="text",
+                    text=f"Error splitting rule: {str(e)}"
                 )]
         
         elif name == "explain_sieve_syntax":

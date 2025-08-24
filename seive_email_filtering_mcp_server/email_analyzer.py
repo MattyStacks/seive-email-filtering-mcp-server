@@ -372,10 +372,32 @@ class EmailAnalyzer:
         rule.name = analysis.suggested_filter_name
         rule.description = f"Auto-generated filter (confidence: {analysis.confidence_score:.2f})"
         
-        # Add expiration if recommended
-        if analysis.requires_expiration and "expire" in analysis.recommended_actions:
-            from .models import SieveExpireAction
-            expire_action = SieveExpireAction(period="day", count="7")
-            rule.actions.insert(0, expire_action)  # Add expire before fileinto
-        
         return rule
+    
+    def generate_expiring_filter_from_analysis(self, analysis: FilterAnalysis) -> List[SieveRule]:
+        """
+        Generate separate Sieve rules for expiring filters based on email analysis.
+        
+        Returns multiple rules if expiration is recommended to comply with Sieve syntax.
+        """
+        # First generate the base rule
+        base_rule = self.generate_filter_from_analysis(analysis)
+        
+        # If expiration is not needed, return single rule
+        if not (analysis.requires_expiration and "expire" in analysis.recommended_actions):
+            return [base_rule]
+        
+        # Create separate rules for expiring + regular filing
+        from .utils import SieveFilterBuilder
+        rules = SieveFilterBuilder.create_expiring_fileinto_filter(
+            test=base_rule.test,
+            expire_mailbox="expiring",
+            regular_mailbox=analysis.suggested_folder,
+            expire_period="day",
+            expire_count="7",
+            name=analysis.suggested_filter_name,
+            description=f"Auto-generated filter (confidence: {analysis.confidence_score:.2f})",
+            priority=base_rule.priority
+        )
+        
+        return rules

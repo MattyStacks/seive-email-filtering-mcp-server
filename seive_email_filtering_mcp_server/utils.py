@@ -8,13 +8,100 @@ from .models import (
     SieveHeaderTest, SieveAddressTest, SieveBodyTest, SieveExistsTest, SieveSizeTest,
     SieveAllOfTest, SieveAnyOfTest, SieveNotTest,
     SieveFileintoAction, SieveRedirectAction, SieveDiscardAction, SieveRejectAction,
-    SieveVacationAction, SieveStopAction, SieveKeepAction,
-    SieveComparator, SieveAddressPart, SieveSizeComparator
+    SieveVacationAction, SieveStopAction, SieveKeepAction, SieveExpireAction,
+    SieveComparator, SieveAddressPart, SieveSizeComparator, SieveActionType, SieveTestUnion
 )
 
 
 class SieveFilterBuilder:
     """Builder class for creating common Sieve filter patterns."""
+    
+    @staticmethod
+    def split_multiple_fileinto_actions(rule: SieveRule) -> List[SieveRule]:
+        """
+        Split a rule with multiple fileinto actions into separate rules.
+        
+        This ensures Sieve compliance since multiple fileinto actions 
+        cannot be combined in a single rule.
+        """
+        # Find all fileinto actions
+        fileinto_actions = [action for action in rule.actions if action.action_type == SieveActionType.FILEINTO]
+        non_fileinto_actions = [action for action in rule.actions if action.action_type != SieveActionType.FILEINTO]
+        
+        if len(fileinto_actions) <= 1:
+            # No splitting needed
+            return [rule]
+        
+        rules = []
+        
+        # Create first rule with non-fileinto actions + first fileinto
+        if fileinto_actions:
+            first_rule = SieveRule(
+                name=f"{rule.name} (File to {fileinto_actions[0].mailbox})",
+                description=f"{rule.description} - files to {fileinto_actions[0].mailbox}",
+                enabled=rule.enabled,
+                test=rule.test,
+                actions=non_fileinto_actions + [fileinto_actions[0]],
+                priority=rule.priority
+            )
+            rules.append(first_rule)
+        
+        # Create additional rules for remaining fileinto actions
+        for i, fileinto_action in enumerate(fileinto_actions[1:], 2):
+            additional_rule = SieveRule(
+                name=f"{rule.name} (File to {fileinto_action.mailbox})",
+                description=f"{rule.description} - files to {fileinto_action.mailbox}",
+                enabled=rule.enabled,
+                test=rule.test,
+                actions=[fileinto_action],
+                priority=rule.priority + i  # Slightly higher priority to ensure order
+            )
+            rules.append(additional_rule)
+        
+        return rules
+    
+    @staticmethod
+    def create_expiring_fileinto_filter(
+        test: SieveTestUnion,
+        expire_mailbox: str,
+        regular_mailbox: str,
+        expire_period: str = "day",
+        expire_count: str = "7",
+        name: str = "Expiring Filter",
+        description: str = "Filter with auto-expiration",
+        priority: int = 30
+    ) -> List[SieveRule]:
+        """
+        Create separate rules for expiring + fileinto actions.
+        
+        Returns two rules:
+        1. Expire action + file to expiring folder
+        2. File to regular folder
+        """
+        # Rule 1: Expire and file to expiring folder
+        expire_rule = SieveRule(
+            name=f"{name} (Expiring)",
+            description=f"{description} - expires after {expire_count} {expire_period}(s)",
+            test=test,
+            actions=[
+                SieveExpireAction(period=expire_period, count=expire_count),
+                SieveFileintoAction(mailbox=expire_mailbox)
+            ],
+            priority=priority
+        )
+        
+        # Rule 2: File to regular folder
+        fileinto_rule = SieveRule(
+            name=f"{name} (Filing)",
+            description=f"{description} - files to {regular_mailbox}",
+            test=test,
+            actions=[
+                SieveFileintoAction(mailbox=regular_mailbox)
+            ],
+            priority=priority + 1
+        )
+        
+        return [expire_rule, fileinto_rule]
     
     @staticmethod
     def create_spam_filter(mailbox: str = "Spam", priority: int = 10) -> SieveRule:
@@ -390,19 +477,43 @@ class SieveTemplates:
     @staticmethod
     def protonmail_comprehensive() -> SieveScript:
         """Create a comprehensive ProtonMail-compatible script."""
-        from .models import SieveExpireAction
+        from .models import SieveExpireAction, SieveHeaderTest
         
-        # Steam sales filter with expiration
-        steam_rule = SieveFilterBuilder.create_subject_filter(
-            ["Steam wishlist", "Steam sale", "Steam Daily Deal"],
-            "promotions",
+        # Create Steam sales filter with proper separate rules
+        steam_test = SieveHeaderTest(
+            header_list=["Subject"],
+            key_list=["Steam wishlist", "Steam sale", "Steam Daily Deal"],
+            comparator=SieveComparator.CONTAINS
+        )
+        steam_rules = SieveFilterBuilder.create_expiring_fileinto_filter(
+            test=steam_test,
+            expire_mailbox="expiring",
+            regular_mailbox="promotions",
+            expire_period="day",
+            expire_count="7",
+            name="Steam Sales",
+            description="Filter Steam sales notifications with auto-expiration",
             priority=25
         )
-        steam_rule.name = "Steam Sales"
-        steam_rule.description = "Filter Steam sales notifications with auto-expiration"
-        steam_rule.actions.insert(0, SieveExpireAction(period="day", count="7"))
         
-        # Financial filter
+        # Create promotional filter with proper separate rules
+        promotional_test = SieveHeaderTest(
+            header_list=["Subject"],
+            key_list=["sale", "discount", "offer", "promotion"],
+            comparator=SieveComparator.CONTAINS
+        )
+        promotional_rules = SieveFilterBuilder.create_expiring_fileinto_filter(
+            test=promotional_test,
+            expire_mailbox="expiring",
+            regular_mailbox="promotions",
+            expire_period="day",
+            expire_count="7",
+            name="Promotional Email",
+            description="Filter promotional emails with auto-expiration",
+            priority=30
+        )
+        
+        # Financial filter (no expiration needed)
         finance_rule = SieveFilterBuilder.create_domain_filter(
             "bankofamerica.com",
             "finance", 
@@ -410,6 +521,7 @@ class SieveTemplates:
         )
         finance_rule.name = "Bank of America"
         
+        # Combine all rules
         rules = [
             # Whitelist
             SieveFilterBuilder.create_whitelist_filter(
@@ -427,30 +539,17 @@ class SieveTemplates:
             
             # Financial
             finance_rule,
-            
-            # Steam with expiration
-            steam_rule,
-            
-            # Promotional with expiration
-            SieveRule(
-                name="Promotional Email Filter",
-                description="Filter promotional emails with auto-expiration",
-                test=SieveHeaderTest(
-                    header_list=["Subject"],
-                    key_list=["sale", "discount", "offer", "promotion"],
-                    comparator=SieveComparator.CONTAINS
-                ),
-                actions=[
-                    SieveExpireAction(period="day", count="7"),
-                    SieveFileintoAction(mailbox="promotions")
-                ],
-                priority=30
-            )
         ]
+        
+        # Add Steam rules (2 separate rules)
+        rules.extend(steam_rules)
+        
+        # Add Promotional rules (2 separate rules)  
+        rules.extend(promotional_rules)
         
         return SieveScript(
             name="ProtonMail Comprehensive Filtering",
-            description="Complete ProtonMail filtering with expiration and spam protection",
+            description="Complete ProtonMail filtering with expiration and spam protection using proper separate rules",
             rules=rules,
             requires=["fileinto", "vnd.proton.expire"],
             protonmail_mode=True,
