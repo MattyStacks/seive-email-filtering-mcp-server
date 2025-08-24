@@ -1,0 +1,238 @@
+# Sieve Email Filtering - GitHub Copilot Integration Example
+
+This example shows how to set up your email filtering repository to work effectively with GitHub Copilot and this MCP server.
+
+## Directory Structure for Your Email Filtering Project
+
+```
+your-sieve-project/
+├── .vscode/
+│   ├── settings.json          # VS Code configuration
+│   ├── tasks.json             # Build tasks
+│   └── extensions.json        # Recommended extensions
+├── .copilot/
+│   ├── context.md             # Context for Copilot
+│   └── examples/              # Example Sieve scripts
+│       ├── basic-spam.sieve
+│       ├── mailing-lists.sieve
+│       └── vacation.sieve
+├── src/
+│   ├── main.sieve             # Your main Sieve script
+│   └── rules/                 # Individual rule files
+├── tools/
+│   └── sieve-mcp-server/      # This MCP server (as submodule)
+└── README.md
+```
+
+## 1. VS Code Settings (`.vscode/settings.json`)
+
+```json
+{
+    "python.defaultInterpreterPath": "./tools/sieve-mcp-server/.venv/Scripts/python.exe",
+    "terminal.integrated.env.windows": {
+        "SIEVE_MCP_SERVER_PATH": "${workspaceFolder}/tools/sieve-mcp-server",
+        "PYTHONPATH": "${workspaceFolder}/tools/sieve-mcp-server"
+    },
+    "github.copilot.enable": {
+        "*": true,
+        "sieve": true,
+        "plaintext": true
+    },
+    "github.copilot.advanced": {
+        "debug.overrideEngine": "codex",
+        "debug.testOverrideProxyUrl": "",
+        "debug.overrideProxyUrl": ""
+    }
+}
+```
+
+## 2. Build Tasks (`.vscode/tasks.json`)
+
+```json
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Generate Comprehensive Filter",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "-m", "seive_email_filtering_mcp_server.cli",
+                "template", "comprehensive_filtering",
+                "--output", "${workspaceFolder}/src/generated.sieve"
+            ],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "panel": "new"
+            },
+            "options": {
+                "cwd": "${env:SIEVE_MCP_SERVER_PATH}"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Create Spam Filter",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "-m", "seive_email_filtering_mcp_server.cli",
+                "spam-filter",
+                "--mailbox", "Spam",
+                "--output", "${workspaceFolder}/src/rules/spam.sieve"
+            ],
+            "group": "build",
+            "options": {
+                "cwd": "${env:SIEVE_MCP_SERVER_PATH}"
+            }
+        },
+        {
+            "label": "Validate Sieve Script",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "-m", "seive_email_filtering_mcp_server.cli",
+                "validate", "${file}"
+            ],
+            "group": "test",
+            "options": {
+                "cwd": "${env:SIEVE_MCP_SERVER_PATH}"
+            }
+        }
+    ]
+}
+```
+
+## 3. Copilot Context (`.copilot/context.md`)
+
+```markdown
+# Sieve Email Filtering Context for GitHub Copilot
+
+## Project Overview
+This project manages email filters using the Sieve language (RFC 5228).
+
+## Available MCP Server Tools
+When working with Sieve filters, use these patterns from the MCP server:
+
+### Common Filter Types:
+- Spam filtering: Move spam to designated folder
+- Sender filtering: Filter by specific email addresses
+- Domain filtering: Filter by sender domain
+- Mailing list filtering: Organize mailing list messages
+- Size filtering: Handle large messages
+- Subject filtering: Filter by subject patterns
+- Vacation responses: Auto-reply messages
+- Blacklist/Whitelist: Block or prioritize senders
+
+### Sieve Syntax Patterns:
+- Tests: header, address, body, size, exists, allof, anyof, not
+- Actions: fileinto, discard, keep, redirect, reject, vacation, stop
+- Comparators: :is, :contains, :matches, :regex
+- Address parts: :all, :localpart, :domain
+
+### Example Rule Structure:
+```sieve
+# Comment describing the rule
+if TEST_CONDITION {
+    ACTION;
+    stop;  # Optional: stop processing further rules
+}
+```
+
+## Integration Commands:
+Use PowerShell/Terminal commands:
+- `python -m seive_email_filtering_mcp_server.cli template comprehensive_filtering`
+- `python -m seive_email_filtering_mcp_server.cli spam-filter --mailbox Junk`
+- `python -m seive_email_filtering_mcp_server.cli validate script.json`
+
+## File Extensions:
+- `.sieve` - Sieve script files
+- `.siv` - Alternative Sieve extension
+- `.json` - Sieve rule definitions (for MCP server)
+```
+
+## 4. Example Sieve Files
+
+Create these in `.copilot/examples/` to help Copilot learn:
+
+**`basic-spam.sieve`:**
+```sieve
+# Basic spam filter - generated by Sieve MCP Server
+require "fileinto";
+
+# Rule: Spam Filter
+# Move spam messages to spam folder
+if anyof (header "X-Spam-Flag" "YES", 
+          header :matches "X-Spam-Status" "*Yes*", 
+          header :contains "Subject" ["***SPAM***", "[SPAM]", "***UCE***"]) {
+  fileinto "Spam";
+  stop;
+}
+```
+
+**`mailing-lists.sieve`:**
+```sieve
+# Mailing list filters - generated by Sieve MCP Server
+require "fileinto";
+
+# Python mailing list
+if anyof (header :matches "List-ID" "*python-dev@python.org*", 
+          header :matches "List-Post" "*python-dev@python.org*") {
+  fileinto "Lists/Python";
+}
+
+# General tech lists
+if header :contains "List-ID" "tech-news" {
+  fileinto "Lists/Tech";
+}
+```
+
+## 5. Setup Script
+
+Create a PowerShell script to set up the integration:
+
+**`setup-copilot-integration.ps1`:**
+```powershell
+# Setup script for Sieve Email Filtering with GitHub Copilot
+
+# 1. Clone or link the MCP server
+if (-not (Test-Path "tools/sieve-mcp-server")) {
+    Write-Host "Setting up Sieve MCP Server..."
+    git submodule add https://github.com/MattyStacks/seive-email-filtering-mcp-server.git tools/sieve-mcp-server
+    cd tools/sieve-mcp-server
+    python -m venv .venv
+    .\.venv\Scripts\Activate.ps1
+    pip install -e .
+    cd ../..
+}
+
+# 2. Create example files for Copilot
+if (-not (Test-Path ".copilot/examples")) {
+    New-Item -ItemType Directory -Path ".copilot/examples" -Force
+    # Generate example files using the MCP server
+    cd tools/sieve-mcp-server
+    .\.venv\Scripts\python.exe -m seive_email_filtering_mcp_server.cli template basic_email_organization --output "../../.copilot/examples/basic.sieve"
+    .\.venv\Scripts\python.exe -m seive_email_filtering_mcp_server.cli spam-filter --output "../../.copilot/examples/spam.sieve"
+    cd ../..
+}
+
+Write-Host "Copilot integration setup complete!"
+Write-Host "Now you can use Ctrl+Shift+P -> 'Tasks: Run Task' to access Sieve generation tools."
+```
+
+## How This Works with GitHub Copilot
+
+1. **Context Awareness**: Copilot learns from the example files and context documentation
+2. **Task Integration**: VS Code tasks provide easy access to MCP server functions
+3. **File Associations**: Proper file type associations help Copilot understand Sieve syntax
+4. **Environment Setup**: Environment variables make the MCP server accessible
+
+## Usage Workflow
+
+1. **Start a new filter**: Use VS Code tasks or commands to generate templates
+2. **Customize with Copilot**: Let Copilot help you modify the generated Sieve code
+3. **Validate**: Use the validation task to check your Sieve syntax
+4. **Deploy**: Copy the final `.sieve` files to your email server
+
+This setup gives you the best of both worlds: the structured generation capabilities of the MCP server and the intelligent code completion of GitHub Copilot.

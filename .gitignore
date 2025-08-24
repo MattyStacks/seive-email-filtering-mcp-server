@@ -205,3 +205,56 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# MCP Server specific
+# Configuration files that might contain sensitive data
+*.config.json
+*config*.json
+!mcp-server-config.json  # Keep the template config file
+
+# Email test files (might contain sensitive data)
+*.eml
+*.msg
+test_emails/
+sample_emails/
+!test_email.eml  # Keep our test example
+
+# Sieve script outputs and temporary files
+*.sieve
+*.siv
+sieve_output/
+generated_scripts/
+temp_scripts/
+
+# IDE and editor files
+.vscode/settings.json
+.vscode/launch.json
+# Keep extensions.json for recommended extensions
+# Keep tasks.json for build tasks
+
+# OS specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Backup files
+*.bak
+*.backup
+*~
+*.swp
+*.swo
+
+# Log files
+*.log
+logs/
+log/
+
+# Temporary files
+tmp/
+temp/
+.tmp/
